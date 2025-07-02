@@ -1,0 +1,113 @@
+import SwiftUI
+
+struct ContentView: View {
+    @State private var newsTitle = ""
+    @State private var prediction: String?
+    @State private var isLoading = false
+
+    var body: some View {
+        ZStack {
+            LinearGradient(gradient: Gradient(colors: [.blue.opacity(0.3), .purple.opacity(0.3)]),
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+                .edgesIgnoringSafeArea(.all)
+
+            VStack(spacing: 30) {
+                Text("📰 Fake News Detector")
+                    .font(.largeTitle)
+                    .bold()
+                    .padding(.top)
+
+                TextField("Enter a news headline...", text: $newsTitle)
+                    .padding()
+                    .background(Color.white)
+                    .cornerRadius(12)
+                    .shadow(radius: 3)
+                    .padding(.horizontal)
+
+                Button(action: {
+                    hideKeyboard()
+                    checkFakeNews(title: newsTitle)
+                }) {
+                    HStack {
+                        if isLoading {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "magnifyingglass")
+                            Text("Analyze")
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.indigo)
+                    .cornerRadius(15)
+                    .padding(.horizontal)
+                }
+                .disabled(newsTitle.isEmpty || isLoading)
+
+                if let prediction = prediction {
+                    VStack(spacing: 10) {
+                        Text("Prediction:")
+                            .font(.headline)
+                        Text(prediction)
+                            .font(.largeTitle)
+                            .fontWeight(.semibold)
+                            .foregroundColor(prediction == "FAKE" ? .red : .green)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color.white)
+                            .cornerRadius(15)
+                            .shadow(radius: 4)
+                    }
+                    .padding(.horizontal)
+                    .transition(.opacity)
+                }
+
+                Spacer()
+            }
+            .padding()
+        }
+    }
+
+    func checkFakeNews(title: String) {
+        guard let url = URL(string: "https://42cb-35-185-32-208.ngrok-free.app/predict") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let json: [String: Any] = ["text": title]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: json)
+
+        isLoading = true
+        prediction = nil
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                isLoading = false
+            }
+
+            if let data = data,
+               let result = try? JSONDecoder().decode(PredictionResponse.self, from: data) {
+                DispatchQueue.main.async {
+                    withAnimation {
+                        prediction = result.prediction
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    prediction = "Error"
+                }
+            }
+        }.resume()
+    }
+
+    func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
+    }
+}
+
+struct PredictionResponse: Codable {
+    let prediction: String
+}
