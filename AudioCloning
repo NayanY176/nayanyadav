@@ -1,0 +1,35 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+import torchaudio
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+import torch
+
+processor = Wav2Vec2Processor.from_pretrained("facebook/wav2vec2-base-960h")
+model = Wav2Vec2ForCTC.from_pretrained("facebook/wav2vec2-base-960h")
+
+waveform, sample_rate = torchaudio.load("/content/drive/MyDrive/New Recording 2.wav")
+
+if sample_rate != 16000:
+    resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+    waveform = resampler(waveform)
+
+inputs = processor(waveform.squeeze(), sampling_rate=16000, return_tensors="pt")
+with torch.no_grad():
+    logits = model(**inputs).logits
+
+predicted_ids = torch.argmax(logits, dim=-1)
+transcription = processor.decode(predicted_ids[0])
+print("Transcribed:", transcription)
+
+def motivate_response(text):
+    return f"write your text here"
+
+motivational_text = motivate_response(transcription)
+print("Motivational Text:", motivational_text)
+
+from TTS.api import TTS
+
+tts = TTS(model_name="tts_models/multilingual/multi-dataset/your_tts", progress_bar=False)
+
+tts.tts_to_file(text=motivational_text, speaker_wav="speaker_fileName", file_path="output_fileName",language="en" )
