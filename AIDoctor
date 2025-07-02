@@ -1,0 +1,63 @@
+from google.colab import drive
+drive.mount('/content/drive/')
+# import csv
+# import numpy as np
+
+# # Load CSV using csv.reader to handle quotes and commas
+# with open('/content/drive/MyDrive/Final_Augmented_dataset_Diseases_and_Symptoms.csv', newline='', encoding='utf-8') as f:
+#     reader = csv.reader(f)
+#     header = next(reader)
+#     data = [row for row in reader]
+
+# data = np.array(data)
+
+# print("Shape:", data.shape)
+# print("First 2 rows:\n", data[:2])
+import pandas as pd
+import csv
+import numpy as np
+
+symptom_labels = [
+    'anxiety and nervousness', 'depression', 'shortness of breath',
+    'sharp chest pain', 'dizziness', 'insomnia', 'abnormal involuntary movements',
+    'chest tightness', 'ankle weakness', 'neck weakness'
+]
+
+descriptions = [
+    "I feel nervous and panicky all the time.",
+    "I've been deeply sad and hopeless for weeks.",
+    "Even walking short distances makes me breathless.",
+    "My chest hurts sharply when I move.",
+    "I keep feeling lightheaded and dizzy.",
+    "I can't fall asleep no matter how tired I am.",
+    "My limbs jerk on their own sometimes.",
+    "It feels like something is pressing on my chest.",
+    "I can't stand for long, my ankle feels weak.",
+    "My neck feels too weak to hold my head up."
+]
+
+data = []
+for desc, target in zip(descriptions, symptom_labels):
+    row = [1 if label == target else 0 for label in symptom_labels]
+    data.append([desc] + row)
+
+columns = ['text'] + symptom_labels
+df = pd.DataFrame(data, columns=columns)
+
+csv_path = '/content/drive/MyDrive/Final_Augmented_dataset_Diseases_and_Symptoms.csv'
+df.to_csv(csv_path, index=False, quoting=1)
+
+with open(csv_path, newline='', encoding='utf-8') as f:
+    reader = csv.reader(f)
+    header = next(reader)
+    data = [row for row in reader]
+
+data_np = np.array(data)
+
+texts = data_np[:, 0]
+labels = data_np[:, 1:].astype(int)
+
+print("Header:", header)
+print("Shape of data:", data_np.shape)
+print("Example text:", texts[0])
+print("Example labels:", labels[0])
