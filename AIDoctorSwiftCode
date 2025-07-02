@@ -1,0 +1,154 @@
+//
+//  ContentView.swift
+//  AiDoctor
+//
+//  Created by Nayan Yadav on 6/11/25.
+//
+
+import SwiftUI
+
+struct Message: Identifiable {
+    let id = UUID()
+    let text: String
+    let isUser: Bool
+}
+
+struct SymptomPrediction: Identifiable {
+    let id = UUID()
+    let symptom: String
+    let probability: Double
+}
+
+struct ContentView: View {
+    @State private var userInput: String = ""
+    @State private var messages: [Message] = []
+    @State private var isTyping = false
+
+    let apiURL = "Enter your API link here"
+
+    var body: some View {
+        VStack {
+            ScrollViewReader { scrollView in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(messages) { message in
+                            HStack {
+                                if message.isUser {
+                                    Spacer()
+                                    Text(message.text)
+                                        .padding()
+                                        .background(Color.blue)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(16)
+                                        .frame(maxWidth: 250, alignment: .trailing)
+                                } else {
+                                    Text(message.text)
+                                        .padding()
+                                        .background(Color.gray.opacity(0.2))
+                                        .foregroundColor(.black)
+                                        .cornerRadius(16)
+                                        .frame(maxWidth: 250, alignment: .leading)
+                                    Spacer()
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
+
+                        if isTyping {
+                            HStack {
+                                Text("AI is thinking...")
+                                    .italic()
+                                    .padding(10)
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(10)
+                                Spacer()
+                            }
+                            .padding(.horizontal)
+                        }
+                    }
+                    .padding(.vertical)
+                }
+                .onChange(of: messages.count) { _ in
+                    withAnimation {
+                        scrollView.scrollTo(messages.last?.id, anchor: .bottom)
+                    }
+                }
+            }
+
+            HStack {
+                TextField("Describe your symptoms...", text: $userInput)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .disabled(isTyping)
+
+                Button(action: {
+                    sendUserMessage()
+                }) {
+                    Image(systemName: "paperplane.fill")
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(userInput.isEmpty || isTyping ? Color.gray : Color.blue)
+                        .clipShape(Circle())
+                }
+                .disabled(userInput.isEmpty || isTyping)
+            }
+            .padding()
+        }
+    }
+
+    func sendUserMessage() {
+        let input = userInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return }
+
+        // Add user's message
+        messages.append(Message(text: input, isUser: true))
+        userInput = ""
+        isTyping = true
+
+        // Call the API
+        sendInputToAPI(text: input)
+    }
+
+    func sendInputToAPI(text: String) {
+        guard let url = URL(string: apiURL) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = ["text": text]
+        request.httpBody = try? JSONEncoder().encode(body)
+
+        URLSession.shared.dataTask(with: request) { data, _, error in
+            isTyping = false
+            guard let data = data, error == nil else {
+                DispatchQueue.main.async {
+                    messages.append(Message(text: "Sorry, something went wrong.", isUser: false))
+                }
+                return
+            }
+
+            if let decoded = try? JSONDecoder().decode(APIResponse.self, from: data) {
+                let topSymptoms = decoded.predictions.prefix(3) // Show top 3
+                let responseText = topSymptoms.map {
+                    "\($0.symptom): \((String(format: "%.1f", $0.probability * 100)))%"
+                }.joined(separator: "\n")
+
+                DispatchQueue.main.async {
+                    messages.append(Message(text: responseText, isUser: false))
+                }
+            } else {
+                DispatchQueue.main.async {
+                    messages.append(Message(text: "Couldn't understand the response.", isUser: false))
+                }
+            }
+        }.resume()
+    }
+}
+
+struct APIResponse: Codable {
+    let predictions: [SymptomResult]
+}
+
+struct SymptomResult: Codable {
+    let symptom: String
+    let probability: Double
+}
