@@ -61,3 +61,128 @@ print("Header:", header)
 print("Shape of data:", data_np.shape)
 print("Example text:", texts[0])
 print("Example labels:", labels[0])
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, GlobalAveragePooling1D, Dense
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+texts = [
+    "I feel nervous and panicky all the time.",
+    "I've been deeply sad and hopeless for weeks.",
+    "Even walking short distances makes me breathless.",
+    "My chest hurts sharply when I move.",
+    "I keep feeling lightheaded and dizzy.",
+    "I can't fall asleep no matter how tired I am.",
+    "My limbs jerk on their own sometimes.",
+    "It feels like something is pressing on my chest.",
+    "I can't stand for long, my ankle feels weak.",
+    "My neck feels too weak to hold my head up."
+]
+
+labels = [
+    [1,0,0,0,0,0,0,0,0,0],
+    [0,1,0,0,0,0,0,0,0,0],
+    [0,0,1,0,0,0,0,0,0,0],
+    [0,0,0,1,0,0,0,0,0,0],
+    [0,0,0,0,1,0,0,0,0,0],
+    [0,0,0,0,0,1,0,0,0,0],
+    [0,0,0,0,0,0,1,0,0,0],
+    [0,0,0,0,0,0,0,1,0,0],
+    [0,0,0,0,0,0,0,0,1,0],
+    [0,0,0,0,0,0,0,0,0,1],
+]
+
+tokenizer = Tokenizer(num_words=1000, oov_token="<OOV>")
+tokenizer.fit_on_texts(texts)
+sequences = tokenizer.texts_to_sequences(texts)
+padded = pad_sequences(sequences, padding='post', maxlen=20)
+
+model = Sequential([
+    Embedding(input_dim=1000, output_dim=16, input_length=20),
+    GlobalAveragePooling1D(),
+    Dense(16, activation='relu'),
+    Dense(10, activation='softmax')
+])
+
+model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+model.fit(padded, np.array(labels), epochs=100, verbose=1)
+
+model.save("symptom_classifier.h5")
+import pickle
+with open("tokenizer.pkl", "wb") as f:
+    pickle.dump(tokenizer, f)
+
+sample_input = ["I feel dizzy and can't sleep"]
+seq = tokenizer.texts_to_sequences(sample_input)
+pad = pad_sequences(seq, maxlen=20, padding='post')
+
+prediction = model.predict(pad)[0]
+
+top3_indices = prediction.argsort()[-3:][::-1]
+
+top3 = [(symptom_labels[i], prediction[i]) for i in top3_indices]
+
+for symptom, prob in top3:
+    print(f"{symptom}: {prob:.4f}")
+
+pip install flask tensorflow pyngrok
+#!ngrok config add-authtoken (add your own token here)
+# ngrok.kill() (to kill all previous running models
+
+from flask import Flask, request, jsonify
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from pyngrok import ngrok
+import pickle
+
+app = Flask(__name__)
+
+model = load_model("symptom_classifier.h5")
+
+with open("tokenizer.pkl", "rb") as f:
+    tokenizer = pickle.load(f)
+
+MAX_LEN = 20
+SYMPTOM_LABELS = [
+    "Anxiety", "Depression", "Breathlessness", "Chest Pain", "Dizziness",
+    "Insomnia", "Limb Jerks", "Chest Pressure", "Ankle Weakness", "Neck Weakness"
+]
+
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({"message": "Symptom prediction API is running."})
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    try:
+        data = request.get_json()
+        text = data.get("text", "").strip()
+
+        if not text:
+            return jsonify({"error": "No input text provided."}), 400
+
+        sequence = tokenizer.texts_to_sequences([text])
+        padded_sequence = pad_sequences(sequence, maxlen=MAX_LEN, padding='post')
+
+        prediction = model.predict(padded_sequence)[0]
+
+        results = [
+            {"symptom": SYMPTOM_LABELS[i], "probability": round(float(prediction[i]), 4)}
+            for i in range(len(SYMPTOM_LABELS))
+        ]
+
+        results.sort(key=lambda x: x["probability"], reverse=True)
+
+        return jsonify({"input": text, "predictions": results})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    public_url = ngrok.connect(5200)
+    print(f"🔥 Public API URL for iOS: {public_url}/predict")
+    app.run(port=5200)
