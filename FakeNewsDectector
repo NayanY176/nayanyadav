@@ -1,0 +1,180 @@
+from google.colab import drive
+drive.mount('/content/drive')
+
+import pandas as pd
+import numpy as np
+import re
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
+from sklearn.metrics import classification_report
+import pickle
+
+df = pd.read_csv("/content/drive/MyDrive/fake_or_real_news.csv")
+df = df[["text", "label"]].dropna()
+
+def clean_text(text):
+    text = str(text).lower()
+    text = re.sub(r'[^a-zA-Z\s]', '', text)
+    return text
+
+df['text'] = df['text'].apply(clean_text)
+df['label'] = df['label'].map({'REAL': 0, 'FAKE': 1})
+
+tokenizer = Tokenizer(num_words=10000, oov_token="<OOV>")
+tokenizer.fit_on_texts(df['text'])
+sequences = tokenizer.texts_to_sequences(df['text'])
+X = pad_sequences(sequences, maxlen=300)
+y = df['label'].values
+
+with open("tf_tokenizer.pkl", "wb") as f:
+    pickle.dump(tokenizer, f)
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+model = Sequential([
+    Embedding(input_dim=10000, output_dim=64, input_length=300),
+    Bidirectional(LSTM(64, return_sequences=True)),
+    Dropout(0.5),
+    Bidirectional(LSTM(32)),
+    Dense(32, activation='relu'),
+    Dropout(0.3),
+    Dense(1, activation='sigmoid')
+])
+
+model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+model.fit(X_train, y_train, epochs=20, batch_size=64, validation_split=0.2)
+
+y_pred = (model.predict(X_test) > 0.5).astype(int)
+print(classification_report(y_test, y_pred))
+
+model.save("tf_fake_news_model.h5")
+
+# import pandas as pd
+# from sklearn.model_selection import train_test_split
+# from sklearn.linear_model import LogisticRegression
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# import joblib
+
+# # Load dataset
+# file_path = "/content/drive/MyDrive/fake_or_real_news.csv"
+# df = pd.read_csv(file_path)
+# df['label'] = df['label'].map({'FAKE': 1, 'REAL': 0})
+
+# # Preprocess
+
+# X = df['title']
+# y = df['label']
+# X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
+# vectorizer = TfidfVectorizer(stop_words='english', max_df=0.7)
+# X_train_vec = vectorizer.fit_transform(X_train)
+# X_test_vec = vectorizer.transform(X_test)
+# # Train
+# # model = LogisticRegression(class_weight='balanced')
+# # model.fit(X_train_vec, y_train)
+# from sklearn.linear_model import PassiveAggressiveClassifier
+# from sklearn.metrics import accuracy_score, confusion_matrix
+
+# # Initialize and train classifier
+# model = PassiveAggressiveClassifier(max_iter=1000)
+# model.fit(X_train_vec, y_train)
+
+# # Evaluate
+# y_pred = model.predict(X_test_vec)
+# print("Accuracy:", accuracy_score(y_test, y_pred))
+# print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+
+
+# # Save model and vectorizer
+# joblib.dump(model, "fake_news_model.pkl")
+# joblib.dump(vectorizer, "vectorizer.pkl")
+
+# !ngrok config add-authtoken (add your token here)
+
+from pyngrok import ngrok, conf
+ngrok.kill()
+
+import requests
+from pyngrok import ngrok
+import threading
+import tensorflow as tf
+import numpy as np
+import pickle
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import time
+
+app = Flask(__name__)
+
+model = tf.keras.models.load_model('tf_fake_news_model.h5')
+with open('tf_tokenizer.pkl', 'rb') as f:
+    tokenizer = pickle.load(f)
+
+MAX_LEN = 300
+
+@app.route('/')
+def home():
+    return "Fake News Detection API is running."
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+
+        sequence = tokenizer.texts_to_sequences([text])
+        padded_seq = pad_sequences(sequence, maxlen=MAX_LEN)
+
+        prediction = model.predict(padded_seq)[0][0]
+
+        label = "fake" if prediction >= 0.5 else "real"
+        confidence = round(float(prediction if prediction >= 0.5 else 1 - prediction), 2)
+
+        return jsonify({'prediction': label, 'confidence': confidence})
+    except Exception as e:
+
+        print(f"An error occurred: {e}")
+        return jsonify({'error': str(e)}),
+
+def run_app():
+    print("Starting Flask app...")
+    app.run(port=5700, debug=True, use_reloader=False)
+    print("Flask app stopped.")
+
+
+ngrok.kill()
+print("Ngrok tunnels killed.")
+
+public_url = ngrok.connect(5700).public_url
+print(f"Your app is live at: {public_url}")
+
+print("Starting Flask app in a new thread...")
+thread = threading.Thread(target=run_app)
+thread.daemon = True
+thread.start()
+print("Flask app thread started.")
+
+time.sleep(3)
+
+url = public_url + "/predict"
+data = {"text": "Breaking news about politics"}
+
+print(f"\nSending POST request to: {url}")
+try:
+    response = requests.post(url, json=data)
+
+    print(f"Response Status Code: {response.status_code}")
+
+    if response.status_code == 200:
+        print("Response JSON:")
+        print(response.json())
+    else:
+        print("Non-200 response received. Response body:")
+        print(response.text)
+
+except requests.exceptions.RequestException as e:
+    print(f"An error occurred during the request: {e}")
