@@ -1,0 +1,175 @@
+import os
+import shutil
+import pandas as pd
+import random
+from google.colab import drive
+
+drive.mount('/content/drive')
+
+frames_dir = "/content/drive/MyDrive/dayTrain/dayTrain/dayClip1/frames"  # All images here
+annotations_dir = "/content/drive/MyDrive/Annotations/Annotations/dayTrain/dayClip1"  # where CSVs are
+output_base = "/content/processed"
+train_dir = os.path.join(output_base, "train")
+val_dir = os.path.join(output_base, "val")
+
+label_map = {"stop": "red", "go": "green", "warning": "yellow"}
+
+for target_dir in [train_dir, val_dir]:
+    for label in label_map.values():
+        os.makedirs(os.path.join(target_dir, label), exist_ok=True)
+
+samples = []
+
+for csv_file in os.listdir(annotations_dir):
+    if not csv_file.endswith(".csv"):
+        continue
+    csv_path = os.path.join(annotations_dir, csv_file)
+    df = pd.read_csv(csv_path, sep=';')  
+
+    for _, row in df.iterrows():
+        tag = str(row['Annotation tag']).lower().strip()
+        label = label_map.get(tag)
+        if not label:
+            continue
+
+        filename = os.path.basename(row['Filename']).replace("\\", "/")
+        image_path = os.path.join(frames_dir, filename)
+
+        if os.path.exists(image_path):
+            samples.append((image_path, label, csv_file))
+        else:
+            print(f"⚠️ Missing image: {image_path}")
+
+random.shuffle(samples)
+split_idx = int(0.8 * len(samples))
+train_samples = samples[:split_idx]
+val_samples = samples[split_idx:]
+
+def copy_samples(samples, target_dir):
+    for image_path, label, csv_file in samples:
+        dest_filename = f"{os.path.splitext(csv_file)[0]}_{os.path.basename(image_path)}"
+        dest_path = os.path.join(target_dir, label, dest_filename)
+        shutil.copy(image_path, dest_path)
+
+copy_samples(train_samples, train_dir)
+copy_samples(val_samples, val_dir)
+
+print("Dataset prepared.")
+
+import os
+
+base_path = "/content/drive/MyDrive/dayTrain/dayTrain/dayClip1"
+print("Folders in dayClip1:", os.listdir(base_path))
+
+for folder in os.listdir(base_path):
+    folder_path = os.path.join(base_path, folder)
+    if os.path.isdir(folder_path):
+        print(f"\nFiles in {folder}:")
+        print(os.listdir(folder_path)[:10])
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+
+train_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    "/content/processed/train",
+    image_size=(64, 64),
+    batch_size=32,
+    label_mode='categorical'  
+)
+
+val_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    "/content/processed/val",
+    image_size=(64, 64),
+    batch_size=32,
+    label_mode='categorical'
+)
+
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
+val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+
+model = keras.Sequential([
+    layers.Rescaling(1./255, input_shape=(64, 64, 3)),
+    layers.Conv2D(32, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Conv2D(64, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Conv2D(128, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(3, activation='softmax')  
+])
+
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+model.fit(train_ds, validation_data=val_ds, epochs=10)
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.models import Sequential
+
+train_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    "/content/processed/train",
+    image_size=(64, 64),
+    batch_size=32,
+    label_mode='categorical'
+)
+
+val_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    "/content/processed/val",
+    image_size=(64, 64),
+    batch_size=32,
+    label_mode='categorical'
+)
+
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().shuffle(1000).prefetch(buffer_size=AUTOTUNE)
+val_ds = val_ds.cache().prefetch(buffer_size=AUTOTUNE)
+
+model = Sequential([
+    layers.Input(shape=(64, 64, 3)),
+    layers.Rescaling(1./255),
+    layers.Conv2D(32, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Conv2D(64, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Conv2D(128, 3, activation='relu'),
+    layers.MaxPooling2D(),
+    layers.Flatten(),
+    layers.Dense(64, activation='relu'),
+    layers.Dense(3, activation='softmax')  # 3 classes
+])
+
+model.compile(
+    optimizer='adam',
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+model.fit(train_ds, validation_data=val_ds, epochs=10)
+
+import streamlit as st
+import tensorflow as tf
+import numpy as np
+from PIL import Image
+
+model = tf.keras.models.load_model('your_model.h5')  
+
+class_names = ['green', 'red', 'yellow']
+
+st.title("Traffic Light Classifier")
+uploaded_file = st.file_uploader("Upload a traffic light image...", type=["jpg", "png"])
+
+if uploaded_file:
+    image = Image.open(uploaded_file).resize((64, 64))
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+
+    img_array = np.array(image) / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
+
+    prediction = model.predict(img_array)
+    st.write("Prediction:", class_names[np.argmax(prediction)])
